@@ -2,11 +2,6 @@ name: Build hongguo unsigned IPA
 
 on:
   workflow_dispatch:
-    inputs:
-      gateway:
-        description: "Optional HONGGUO_GATEWAY URL"
-        required: false
-        type: string
   push:
     branches: [main]
     paths:
@@ -15,6 +10,7 @@ on:
       - "scripts/**"
       - "pubspec.yaml"
       - "pubspec.lock"
+      - "MiniReel-0.3.2-android-arm64-v8a/assets/flutter_assets/assets/config/sources.json"
       - ".github/workflows/build-unsigned-ipa.yml"
 
 permissions:
@@ -29,8 +25,6 @@ jobs:
     name: Build unsigned IPA
     runs-on: macos-15
     timeout-minutes: 45
-    env:
-      HONGGUO_GATEWAY: ${{ inputs.gateway || '' }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -41,6 +35,67 @@ jobs:
           channel: stable
           flutter-version: "3.47.7"
           cache: true
+
+      - name: Load source settings from sources.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          source_file = Path(
+              "MiniReel-0.3.2-android-arm64-v8a/assets/flutter_assets/assets/config/sources.json"
+          )
+          if not source_file.is_file():
+              raise SystemExit(f"Missing source configuration: {source_file}")
+
+          config = json.loads(source_file.read_text(encoding="utf-8"))
+          source = config.get("sources", {}).get("hongguo")
+          if not isinstance(source, dict) or source.get("enabled") is not True:
+              raise SystemExit("sources.json does not contain an enabled sources.hongguo entry")
+
+          required = ("baseUrl", "playbackEndpoint", "referer", "mediaReferer")
+          missing = [key for key in required if not source.get(key)]
+          if missing:
+              raise SystemExit("Missing sources.json keys: " + ", ".join(missing))
+
+          # --dart-define-from-file expects a flat JSON object. Keep every value
+          # as a string so the same file works with Flutter's compile-time defines.
+          defines = {
+              "HONGGUO_GATEWAY": str(source["baseUrl"]).rstrip("/"),
+              "HONGGUO_BASE_URL": str(source["baseUrl"]).rstrip("/"),
+              "HONGGUO_PLAYBACK_ENDPOINT": str(source["playbackEndpoint"]),
+              "HONGGUO_REFERER": str(source["referer"]),
+              "HONGGUO_MEDIA_REFERER": str(source["mediaReferer"]),
+              "HONGGUO_APP_BASE_URL": str(source.get("appBaseUrl", "")),
+              "HONGGUO_APP_USER_AGENT": str(source.get("appUserAgent", "")),
+              "HONGGUO_MAX_PAGES": str(source.get("maxPages", 20)),
+              "HONGGUO_PAGE_SIZE": str(source.get("pageSize", 24)),
+              "HONGGUO_TIMEOUT_SECONDS": str(source.get("timeoutSeconds", 12)),
+              "HONGGUO_RETRIES": str(source.get("retries", 3)),
+              "HONGGUO_APP_PARAMETERS_JSON": json.dumps(
+                  source.get("appParameters", {}),
+                  ensure_ascii=False,
+                  separators=(",", ":"),
+              ),
+              "HONGGUO_APP_HEADERS_JSON": json.dumps(
+                  source.get("appHeaders", {}),
+                  ensure_ascii=False,
+                  separators=(",", ":"),
+              ),
+          }
+          out = Path("build-config")
+          out.mkdir(exist_ok=True)
+          define_file = out / "dart-defines.json"
+          define_file.write_text(
+              json.dumps(defines, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(f"Loaded enabled Hongguo source config from {source_file}")
+          print(f"Playback endpoint configured: {defines['HONGGUO_PLAYBACK_ENDPOINT']}")
+          print(f"Flutter compile-time definitions written to {define_file}")
+          PY
 
       - name: Show toolchain
         run: |
@@ -75,11 +130,7 @@ jobs:
       - name: Build Runner.app without code signing
         run: |
           set -euo pipefail
-          if [ -n "$HONGGUO_GATEWAY" ]; then
-            flutter build ios --release --no-codesign --dart-define=HONGGUO_GATEWAY="$HONGGUO_GATEWAY"
-          else
-            flutter build ios --release --no-codesign
-          fi
+          flutter build ios --release --no-codesign --dart-define-from-file=build-config/dart-defines.json
           test -d build/ios/iphoneos/Runner.app
           test -f build/ios/iphoneos/Runner.app/Info.plist
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' build/ios/iphoneos/Runner.app/Info.plist
@@ -88,7 +139,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="$(awk '/^version:/ {print $2; exit}' pubspec.yaml | cut -d+ -f1)"
+          VERSION="$(awk '/^version:/ {print $2; exit}' pubspec.yaml | cut -d+ -f1)
           IPA_NAME="hongguo-${VERSION}-unsigned.ipa"
           STAGING="$RUNNER_TEMP/ipa-staging"
           OUT_DIR="$RUNNER_TEMP/ipa-output"
