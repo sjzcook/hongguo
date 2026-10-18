@@ -75,6 +75,21 @@ lib/
 2. **签名是可注入的**。`HongguoDramaSource` 接受 `RequestSigner`，把 X-Gorgon / X-Argus 这类设备指纹交给外部实现。
 3. **失败不崩**。封面、分页、播放、详情各自有兜底与重试态；封面加载失败自动降级为标题渐变图。
 
+## MiniReel 网关配置接入
+
+配置来源：[`MiniReel-0.3.2-android-arm64-v8a/assets/flutter_assets/assets/config/sources.json`](MiniReel-0.3.2-android-arm64-v8a/assets/flutter_assets/assets/config/sources.json)。
+
+新增的 `lib/data/source/hongguo_gateway_config.dart` 提取了红果配置，包括：
+
+- 网页站点：`https://hongguoduanju.com`
+- 播放解析接口：`https://djapi.999888456.xyz/api/hongguo/play`
+- `referer`、`mediaReferer`、超时、重试次数、分页大小
+- `appBaseUrl`、User-Agent 与应用/设备参数（作为参考配置保留）
+
+当元数据网关返回的分集没有直接视频 URL、但有集号时，客户端会调用播放解析接口，并传入 `series_id` 和 `ep`。播放端点可通过 `--dart-define=HONGGUO_PLAYBACK_ENDPOINT=...` 覆盖。播放地址可能带时效，不应长期缓存。
+
+注意：`HONGGUO_GATEWAY` 仍是客户端自定义的元数据网关，必须实现下文的 `/feed`、`/rank`、`/search`、`/drama/{id}` 和 `/drama/{id}/episodes` 契约。配置文件中的应用 API 地址和设备参数不代表接口公开、免签或已获授权；本次修改不伪造官方私有签名，也未声称第三方端点已在线可用或真实视频已播放成功。
+
 ## 接入真实站源
 
 红果官方接口对每个请求都校验签名与设备指纹，纯 Dart 侧无法自行生成，这也是真果鉴要挂一个 Go 核心的原因。两条可行路径：
