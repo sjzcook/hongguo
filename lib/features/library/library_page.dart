@@ -4,10 +4,12 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../data/models/drama.dart';
+import '../../data/models/user_profile.dart';
 import '../../data/models/watch_progress.dart';
 import '../../state/app_state.dart';
 import '../../widgets/drama_card.dart';
 import '../detail/detail_page.dart';
+import '../login/login_page.dart';
 import '../settings/settings_page.dart';
 
 /// 我的：收藏与观看历史（全部存本机）。
@@ -92,67 +94,219 @@ class _ProfileCard extends StatelessWidget {
 
   final AppState app;
 
+  Future<void> _login(BuildContext context) async {
+    final ok = await LoginPage.show(context, reason: '登录后解锁全部剧集');
+    if (!ok || !context.mounted) return;
+    final name = context.read<AppState>().profile?.nickname ?? '果友';
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text('欢迎回来，$name')));
+  }
+
+  Future<void> _logout(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.surfaceHigh,
+        title: const Text('退出登录', style: TextStyle(fontSize: 16)),
+        content: const Text(
+          '退出后付费剧集需要重新登录才能观看。\n本机的收藏与观看历史会保留。',
+          style: TextStyle(
+            fontSize: 13,
+            height: 1.6,
+            color: AppColors.textSecondary,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('退出',
+                style: TextStyle(color: AppColors.primary)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await app.logout();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.primary.withValues(alpha: 0.22),
-            AppColors.surfaceHigh,
+    final profile = app.profile;
+
+    return GestureDetector(
+      onTap: profile == null ? () => _login(context) : null,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppColors.primary.withValues(alpha: profile == null ? 0.22 : 0.30),
+              AppColors.surfaceHigh,
+            ],
+          ),
+          border: Border.all(
+            color: profile == null
+                ? Colors.transparent
+                : AppColors.primary.withValues(alpha: 0.25),
+            width: 0.8,
+          ),
+        ),
+        child: Row(
+          children: [
+            _Avatar(profile: profile),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          profile?.nickname ?? '未登录',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      if (profile != null && profile.isVip) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: AppColors.gold.withValues(alpha: 0.18),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'VIP',
+                            style: TextStyle(
+                              fontSize: 8.5,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.gold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    profile == null
+                        ? '登录后可解锁全部剧集，收藏与进度云端同步'
+                        : '${profile.modeLabel} · ${profile.maskedPhone}'
+                            ' · 收藏 ${app.favorites.length} · 观看 ${app.history.length}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            if (profile == null)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [AppColors.primary, AppColors.primaryDeep],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Text(
+                  '登录',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              )
+            else
+              GestureDetector(
+                onTap: () => _logout(context),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Text(
+                    '退出',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: const LinearGradient(
-                colors: [AppColors.primary, AppColors.gold],
+    );
+  }
+}
+
+class _Avatar extends StatelessWidget {
+  const _Avatar({required this.profile});
+
+  final UserProfile? profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = profile?.avatar ?? '';
+    final fallback = Container(
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(colors: [AppColors.primary, AppColors.gold]),
+      ),
+      alignment: Alignment.center,
+      child: profile == null
+          ? const Icon(Icons.person, color: Colors.white, size: 26)
+          : Text(
+              profile!.initial,
+              style: const TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
               ),
             ),
-            child: const Icon(Icons.person, color: Colors.white, size: 28),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '本地用户',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '收藏 ${app.favorites.length} · 观看 ${app.history.length} · 数据仅存本机',
-                  style: const TextStyle(
-                    fontSize: 11.5,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.25),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Text(
-              '免登录',
-              style: TextStyle(fontSize: 10.5, color: AppColors.textSecondary),
-            ),
-          ),
-        ],
+    );
+
+    return Container(
+      width: 52,
+      height: 52,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.12),
+          width: 1.4,
+        ),
+      ),
+      child: ClipOval(
+        child: url.isEmpty
+            ? fallback
+            : Image.network(
+                url,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => fallback,
+              ),
       ),
     );
   }

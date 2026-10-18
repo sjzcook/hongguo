@@ -75,6 +75,9 @@ class DemoDramaSource implements DramaSource {
     throw SourceException('未找到该剧', kind: SourceErrorKind.notFound);
   }
 
+  /// 演示源同样遵守「前 N 集免费」的产品规则，方便验证登录门禁。
+  static const freeEpisodes = 8;
+
   @override
   Future<List<Episode>> fetchEpisodes(String dramaId) async {
     await Future<void>.delayed(const Duration(milliseconds: 200));
@@ -88,6 +91,7 @@ class DemoDramaSource implements DramaSource {
         videoUrl: _demoVideos[(int.parse(drama.id.replaceAll(RegExp(r'\D'), '')) + i) %
             _demoVideos.length],
         duration: Duration(seconds: 45 + (i * 13) % 60),
+        locked: index > freeEpisodes,
       );
     });
   }

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../state/app_state.dart';
+import '../login/login_page.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -19,6 +20,27 @@ class SettingsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 6, 16, 32),
         children: [
+          const _SectionTitle('账号'),
+          _SettingTile(
+            title: app.isLoggedIn ? app.profile!.nickname : '未登录',
+            subtitle: app.isLoggedIn
+                ? '${app.authLabel} · ${app.profile!.maskedPhone} · 点击右侧退出'
+                : '登录后可观看登录专享剧集',
+            trailing: TextButton(
+              onPressed: () async {
+                if (app.isLoggedIn) {
+                  await app.logout();
+                } else {
+                  await LoginPage.show(context, reason: '登录后解锁全部剧集');
+                }
+              },
+              child: Text(
+                app.isLoggedIn ? '退出登录' : '去登录',
+                style: const TextStyle(fontSize: 13, color: AppColors.primary),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
           const _SectionTitle('站源'),
           ...app.sourceOptions.map((s) => _SourceTile(option: s, app: app)),
           const SizedBox(height: 20),

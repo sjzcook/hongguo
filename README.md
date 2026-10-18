@@ -16,6 +16,7 @@
 | 搜索 | 输入 320ms 防抖、热门词、搜索历史、结果富文本卡 |
 | 详情 | 沉浸式头图、标签、简介展开、选集网格、当前集高亮、一键续播 |
 | 播放 | 竖屏全屏、单击显隐控制栏、上/下滑切集、进度拖动、倍速、选集、自动连播 |
+| 登录 | 手机号 + 验证码、协议勾选、记住登录态、退出清理、付费集门禁 |
 | 追剧 | 本地收藏、观看历史、断点续播（每 5s 落盘 + 退出落盘） |
 | 设置 | 站源切换、自动连播、默认倍速、清空历史、免责声明 |
 
@@ -86,7 +87,7 @@ Flutter (本项目)  ──HTTP──▶  你的网关（Go/Node/Python）  ─�
                                   └─ 负责签名、设备指纹池、解密、地址下发
 ```
 
-网关只需实现下面 5 个接口，返回 `{"data": ...}`：
+网关只需实现下面这些接口，返回 `{"data": ...}`：
 
 ```
 GET /feed?page=1&category=都市
@@ -94,6 +95,8 @@ GET /rank?type=hot|new|finished|ai&page=1
 GET /search?q=关键词&page=1
 GET /drama/{id}
 GET /drama/{id}/episodes
+GET /categories          # 可选，缺省时客户端用内置分类
+GET /healthz             # 可选，部署脚本用它做自检
 ```
 
 然后启动时注入地址：
@@ -104,11 +107,83 @@ flutter run --dart-define=HONGGUO_GATEWAY=http://192.168.1.10:8080
 
 设置页会自动把「红果」站源点亮，一键切换。
 
+#### 在 CentOS 上部署网关
+
+`scripts/setup_gateway_centos.sh` 是一个自包含的部署脚本，**不需要 `npm install`**——网关只用 Node 标准库，脚本从镜像拉 Node tarball，不碰 yum 源：
+
+```bash
+scp scripts/setup_gateway_centos.sh root@你的服务器:/root/
+ssh root@你的服务器
+bash setup_gateway_centos.sh --domain api.example.com --email you@example.com
+```
+
+脚本依次完成：检测系统（CentOS 7/8/Stream 9、Rocky、Alma）→ CentOS 7/8 自动切 vault 源 → 装 Node → 生成网关代码到 `/opt/hongguo-gateway` → 写配置 `/etc/hongguo-gateway/config.env` → 注册 systemd 服务 → nginx 反代 80 → SELinux `httpd_can_network_connect` → firewalld 放行 → 有域名则申请证书 → 自检 `/healthz`。
+
+常用参数：
+
+| 参数 | 作用 |
+|---|---|
+| `--port 9000` | 网关监听端口（默认 8080，仅监听 127.0.0.1） |
+| `--no-nginx` | 不起 nginx，改为 `0.0.0.0:端口` 直连 |
+| `--no-auth` | 关闭 `X-API-Key` 校验（默认随机生成一个） |
+| `--force-config` | 覆盖已有配置（默认保留，避免冲掉 API Key） |
+| `--dry-run --prefix /tmp/gw` | 只生成文件、不改系统，本机也能试跑 |
+| `--uninstall` | 卸载服务与配置 |
+
+装完会打印地址、API Key 和对应的 `flutter run` 命令，直接用即可：
+
+```bash
+flutter run --dart-define=HONGGUO_GATEWAY=https://api.example.com \
+            --dart-define=HONGGUO_TOKEN=<脚本打印的 key>
+```
+
+网关默认 `UPSTREAM=mock`，返回内置的 24 部演示剧（含可播放样片），可以先端到端跑通链路；接自有上游时把 `/etc/hongguo-gateway/config.env` 改成 `UPSTREAM=http` + `UPSTREAM_BASE=...`，`systemctl restart hongguo-gateway` 生效。适配器源码在 `/opt/hongguo-gateway/lib/adapters/`，两个文件的接口一致，可照 `http.js` 再写一个。
+
 ### 方案 B：WebView 通道
 
 用系统 WebView 打开官方 H5，拦截页面自身发出的 XHR/fetch 响应（签名由官方页面完成），
 把 JSON 回灌给 `HongguoDramaSource`。适合不想自建服务、只要手机端的场景。
 Android 端加 `flutter_inappwebview` 后，在 `shouldInterceptRequest` 里把响应体转发即可。
+
+## 登录与会话
+
+登录入口有三处：`我的` 页账号卡、设置页「账号」、以及点到付费集时的门禁弹窗。
+
+### 两种认证模式（自动选择）
+
+| 模式 | 触发条件 | 行为 |
+| --- | --- | --- |
+| 演示模式 | 未配置 `HONGGUO_GATEWAY` | 完全离线，任意合法手机号 + 验证码 **123456** 登录 |
+| 自建网关 | 配置了 `HONGGUO_GATEWAY` | 走网关 `/auth/*`，凭证由网关签发 |
+
+### 免费集与解锁
+
+未登录时可以看前 N 集，其余集带锁角标；点锁集会先弹登录，登录成功后**自动续上原目标集**，不用再点一次。
+
+- 演示源：前 8 集免费（`DemoDramaSource.freeEpisodes`）
+- 网关：`FREE_EPISODES` 控制，默认 10；网关会在 `/episodes` 里返回 `locked` 字段
+- 播放器里上滑切到锁定集会停在门禁页，不会白屏或加载失败
+
+### 网关需要实现的认证接口
+
+```bash
+POST /auth/sms      {"phone":"13800138000"}            # -> {"code":0,"data":{"sent":true,"debug_code":"123456"}}
+POST /auth/login    {"phone":"...","code":"..."}       # -> {"code":0,"data":{"token":"...","user":{...}}}
+GET  /auth/profile  Authorization: Bearer <token>      # -> {"code":0,"data":{"uid","nickname","phone","vip_level"}}
+POST /auth/logout   Authorization: Bearer <token>      # -> {"code":0}
+```
+
+`debug_code` 仅供演示；接真实短信服务时把 `AUTH_CODE` 置空，并下掉该字段。
+部署脚本已经内置这套实现：HMAC-SHA256 无状态 token、默认 30 天有效期、签名密钥随机生成写入 `config.env`。
+
+### 会话怎么存
+
+- 只存 `token` + 昵称/头像/手机号后四位，**不存密码**（本来也没有密码这一环）。
+- 走 `shared_preferences`，退出登录立即清除，同时重建站源实例，后续请求不再带 `Authorization`。
+- token 失效（网关返回 401）时，`refreshProfile()` 会自动登出并回到未登录态。
+- 上线到真机建议换成 `flutter_secure_storage` 走 Keychain / Keystore；当前实现是为了零新增依赖。
+
+> 客户端只实现我们自己的 `/auth/*` 契约。红果官方的登录需要签名与设备指纹，属于逆向范畴，本项目**不提供**该实现；把网关接到你有权使用的账号体系或官方授权渠道即可。
 
 ## 已验证
 

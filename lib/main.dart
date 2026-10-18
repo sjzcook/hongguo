@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -17,7 +19,10 @@ Future<void> main() async {
   ));
 
   final store = await LocalStore.open();
-  runApp(HongguoApp(state: AppState(store)));
+  final state = AppState(store);
+  // 已登录时后台复核一次凭证（仅网关模式生效）。
+  unawaited(state.refreshProfile());
+  runApp(HongguoApp(state: state));
 }
 
 class HongguoApp extends StatelessWidget {

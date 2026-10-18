@@ -5,6 +5,7 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/drama.dart';
 import '../../state/app_state.dart';
 import '../../widgets/drama_cover.dart';
+import '../login/login_page.dart';
 import '../player/player_page.dart';
 
 /// 剧集详情：头图 + 简介 + 选集。
@@ -64,6 +65,21 @@ class _DetailPageState extends State<DetailPage> {
     ));
   }
 
+  /// 带门禁的播放入口：付费集且未登录时先走登录，登录成功后再续播。
+  Future<void> _openAt(int index, {Duration position = Duration.zero}) async {
+    if (_episodes.isEmpty) return;
+    final target = index.clamp(1, _episodes.length);
+    final episode = _episodes[target - 1];
+    if (!context.read<AppState>().canWatch(episode)) {
+      final ok = await LoginPage.show(
+        context,
+        reason: '登录后可看第 ${episode.index} 集',
+      );
+      if (!ok || !mounted) return;
+    }
+    _play(index: target, position: position);
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
@@ -71,6 +87,10 @@ class _DetailPageState extends State<DetailPage> {
     final progress = app.progressOf(_drama.id);
     final resumeIndex = progress?.episodeIndex ?? 1;
     final resumePos = Duration(milliseconds: progress?.positionMs ?? 0);
+    final resumeEpisode = _episodes.isEmpty
+        ? null
+        : _episodes[resumeIndex.clamp(1, _episodes.length) - 1];
+    final needsLogin = resumeEpisode != null && !app.canWatch(resumeEpisode);
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -190,12 +210,16 @@ class _DetailPageState extends State<DetailPage> {
                     children: [
                       Expanded(
                         child: _PrimaryButton(
-                          label: progress == null
-                              ? '立即观看'
-                              : '继续第 $resumeIndex 集',
-                          icon: Icons.play_arrow_rounded,
-                          onTap: () => _play(
-                            index: resumeIndex,
+                          label: needsLogin
+                              ? '登录后观看'
+                              : (progress == null
+                                  ? '立即观看'
+                                  : '继续第 $resumeIndex 集'),
+                          icon: needsLogin
+                              ? Icons.lock_outline
+                              : Icons.play_arrow_rounded,
+                          onTap: () => _openAt(
+                            resumeIndex,
                             position: resumePos,
                           ),
                         ),
@@ -289,8 +313,9 @@ class _DetailPageState extends State<DetailPage> {
                   (context, i) {
                     final ep = _episodes[i];
                     final isCurrent = progress?.episodeIndex == ep.index;
+                    final locked = !app.canWatch(ep);
                     return GestureDetector(
-                      onTap: () => _play(index: ep.index),
+                      onTap: () => _openAt(ep.index),
                       child: Container(
                         decoration: BoxDecoration(
                           color: isCurrent
@@ -305,16 +330,34 @@ class _DetailPageState extends State<DetailPage> {
                           ),
                         ),
                         alignment: Alignment.center,
-                        child: Text(
-                          '${ep.index}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight:
-                                isCurrent ? FontWeight.w700 : FontWeight.w400,
-                            color: isCurrent
-                                ? AppColors.primary
-                                : AppColors.textPrimary,
-                          ),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Text(
+                              '${ep.index}',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: isCurrent
+                                    ? FontWeight.w700
+                                    : FontWeight.w400,
+                                color: isCurrent
+                                    ? AppColors.primary
+                                    : (locked
+                                        ? AppColors.textTertiary
+                                        : AppColors.textPrimary),
+                              ),
+                            ),
+                            if (locked)
+                              const Positioned(
+                                top: 4,
+                                right: 5,
+                                child: Icon(
+                                  Icons.lock,
+                                  size: 9,
+                                  color: AppColors.gold,
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     );

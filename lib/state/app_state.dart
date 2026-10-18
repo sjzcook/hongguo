@@ -1,13 +1,15 @@
 import 'package:flutter/foundation.dart';
 
+import '../data/auth/auth_service.dart';
 import '../data/local/local_store.dart';
 import '../data/models/drama.dart';
+import '../data/models/user_profile.dart';
 import '../data/models/watch_progress.dart';
 import '../data/source/demo_source.dart';
 import '../data/source/drama_source.dart';
 import '../data/source/hongguo_source.dart';
 
-/// 全局状态：站源、收藏、观看历史、播放偏好。
+/// 全局状态：站源、收藏、观看历史、播放偏好、登录态。
 ///
 /// 用最朴素的 [ChangeNotifier]，避免为一个客户端引入过重的状态框架。
 class AppState extends ChangeNotifier {
@@ -15,11 +17,17 @@ class AppState extends ChangeNotifier {
       : _favorites = _store.favorites,
         _history = _store.history {
     _source = _buildSource(_store.sourceId);
+    _auth = _buildAuthService();
+    _authToken = _store.authToken;
+    _profile = _store.authProfile;
   }
 
   final LocalStore _store;
 
   late DramaSource _source;
+  late AuthService _auth;
+  UserProfile? _profile;
+  String? _authToken;
   Set<String> _favorites;
   List<WatchProgress> _history;
   bool _historyDirty = false;
@@ -58,11 +66,96 @@ class AppState extends ChangeNotifier {
     defaultValue: '',
   );
 
+  /// 网关的 X-API-Key（部署脚本默认会生成一个）。
+  static const hongguoToken = String.fromEnvironment(
+    'HONGGUO_TOKEN',
+    defaultValue: '',
+  );
+
   DramaSource _buildSource(String id) {
     if (id == 'hongguo' && hongguoGateway.isNotEmpty) {
-      return HongguoDramaSource(baseUrl: hongguoGateway);
+      return HongguoDramaSource(
+        baseUrl: hongguoGateway,
+        headers: {
+          if (hongguoToken.isNotEmpty) 'X-API-Key': hongguoToken,
+          if (_authToken != null) 'Authorization': 'Bearer $_authToken',
+        },
+      );
     }
     return DemoDramaSource();
+  }
+
+  /// 有网关就走网关认证，否则用完全离线的演示认证。
+  AuthService _buildAuthService() {
+    if (hongguoGateway.isNotEmpty) {
+      return GatewayAuthService(
+        baseUrl: hongguoGateway,
+        apiKey: hongguoToken,
+      );
+    }
+    return DemoAuthService();
+  }
+
+  // ---------------------------------------------------------------- 登录态
+
+  bool get isLoggedIn => _profile != null && (_authToken?.isNotEmpty ?? false);
+
+  UserProfile? get profile => _profile;
+
+  /// 当前认证方式的展示名（演示模式 / 自建网关）。
+  String get authLabel => _auth.label;
+
+  String get authMode => _auth.mode;
+
+  /// 登录页底部提示。
+  String get authHint => _auth.hint;
+
+  /// 该集是否可播：未标记付费，或已登录。
+  bool canWatch(Episode episode) => !episode.locked || isLoggedIn;
+
+  /// 发送验证码，返回调试用验证码（没有则为 null）。
+  Future<String?> sendLoginCode(String phone) => _auth.sendCode(phone);
+
+  /// 登录失败会抛出 [AuthException]，由页面捕获展示。
+  Future<void> login({required String phone, required String code}) async {
+    final session = await _auth.login(phone: phone, code: code);
+    _authToken = session.token;
+    _profile = session.profile;
+    await _store.saveAuth(session.token, session.profile);
+    await _rebuildSourceWithAuth();
+    notifyListeners();
+  }
+
+  /// 用本地 token 复核一次账号信息，token 失效则自动登出。
+  Future<void> refreshProfile() async {
+    final token = _authToken;
+    // 演示认证是纯本地的，没有服务端可复核。
+    if (token == null || _auth.mode != 'gateway') return;
+    try {
+      final fresh = await _auth.fetchProfile(token);
+      _profile = fresh;
+      await _store.saveAuth(token, fresh);
+      notifyListeners();
+    } on AuthException catch (e) {
+      if (e.kind == AuthErrorKind.invalid) await logout();
+    } catch (_) {
+      // 网络问题不影响已登录状态，保留本地缓存。
+    }
+  }
+
+  Future<void> logout() async {
+    final token = _authToken;
+    _authToken = null;
+    _profile = null;
+    await _store.clearAuth();
+    if (token != null) await _auth.logout(token);
+    await _rebuildSourceWithAuth();
+    notifyListeners();
+  }
+
+  Future<void> _rebuildSourceWithAuth() async {
+    await _source.dispose();
+    _source = _buildSource(_store.sourceId);
   }
 
   Future<void> switchSource(String id) async {
@@ -135,6 +228,7 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _auth.dispose();
     _source.dispose();
     super.dispose();
   }

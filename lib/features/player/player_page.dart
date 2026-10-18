@@ -11,6 +11,7 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/drama.dart';
 import '../../state/app_state.dart';
 import '../../widgets/drama_cover.dart';
+import '../login/login_page.dart';
 
 /// 竖屏播放器：上滑下一集、单击唤出控制栏、进度自动续播。
 class PlayerPage extends StatefulWidget {
@@ -88,6 +89,18 @@ class _PlayerPageState extends State<PlayerPage> {
       _initializing = true;
       _error = null;
     });
+
+    // 付费集且未登录：不加载视频，直接展示登录门禁。
+    if (!_app.canWatch(_episode)) {
+      await old?.dispose();
+      if (!mounted) return;
+      setState(() {
+        _controller = null;
+        _initializing = false;
+      });
+      _scheduleHide();
+      return;
+    }
 
     if (!_platformSupported) {
       await old?.dispose();
@@ -190,6 +203,17 @@ class _PlayerPageState extends State<PlayerPage> {
     _persistProgress();
     _openEpisode(_index - 1);
     _scheduleHide();
+  }
+
+  /// 登录门禁：登录成功后自动续上本集。
+  Future<void> _unlock() async {
+    final ok = await LoginPage.show(
+      context,
+      reason: '登录后可看第 $_index 集及后续剧集',
+    );
+    if (!ok || !mounted) return;
+    setState(() {});
+    await _openEpisode(_index);
   }
 
   void _scheduleHide() {
@@ -334,6 +358,7 @@ class _PlayerPageState extends State<PlayerPage> {
     final app = context.watch<AppState>();
     final fav = app.isFavorite(widget.drama.id);
     final controller = _controller;
+    final gated = !app.canWatch(_episode);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -349,26 +374,122 @@ class _PlayerPageState extends State<PlayerPage> {
           fit: StackFit.expand,
           children: [
             _buildVideo(controller),
-            if (_controlsVisible) _buildTopBar(context),
-            if (_controlsVisible && controller != null && controller.value.isInitialized)
-              _buildCenterPlay(controller),
-            if (_controlsVisible)
-              _buildRightRail(fav, app),
-            if (_controlsVisible && controller != null && controller.value.isInitialized)
-              _buildBottomBar(controller, app),
-            if (_initializing)
-              const Center(
-                child: SizedBox(
-                  width: 26,
-                  height: 26,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.2,
-                    color: AppColors.primary,
+            if (_controlsVisible || gated) _buildTopBar(context),
+            if (!gated) ...[
+              if (_controlsVisible &&
+                  controller != null &&
+                  controller.value.isInitialized)
+                _buildCenterPlay(controller),
+              if (_controlsVisible) _buildRightRail(fav, app),
+              if (_controlsVisible &&
+                  controller != null &&
+                  controller.value.isInitialized)
+                _buildBottomBar(controller, app),
+              if (_initializing)
+                const Center(
+                  child: SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      color: AppColors.primary,
+                    ),
                   ),
                 ),
-              ),
-            if (_error != null) _buildError(),
+              if (_error != null) _buildError(),
+            ],
+            if (gated) _buildGate(context),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// 登录门禁浮层。
+  Widget _buildGate(BuildContext context) {
+    return Positioned.fill(
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xF0000000), Color(0xFF120608)],
+          ),
+        ),
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 34),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.gold.withValues(alpha: 0.12),
+                    border: Border.all(
+                      color: AppColors.gold.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  child: const Icon(Icons.lock_outline,
+                      size: 28, color: AppColors.gold),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  '第 $_index 集为登录专享',
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  '登录后可观看完整剧集\n收藏与观看进度会一并同步',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.7,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                GestureDetector(
+                  onTap: _unlock,
+                  child: Container(
+                    width: 190,
+                    height: 45,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [AppColors.primary, AppColors.primaryDeep],
+                      ),
+                      borderRadius: BorderRadius.circular(23),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Text(
+                      '立即登录',
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  child: const Text(
+                    '返回详情',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: AppColors.textTertiary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

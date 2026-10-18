@@ -2,11 +2,13 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/user_profile.dart';
 import '../models/watch_progress.dart';
 
-/// 本地持久化：收藏、观看历史、偏好设置。
+/// 本地持久化：收藏、观看历史、偏好设置、登录态。
 ///
-/// 与真果鉴一致——账号体系不接通，所有数据只存在本机。
+/// 内容数据全部存在本机；登录凭证也只是「与网关会话」的 token，
+/// 这里不保存任何明码密码。
 class LocalStore {
   LocalStore._(this._prefs);
 
@@ -18,6 +20,8 @@ class LocalStore {
   static const _kAutoPlay = 'hg.autoPlay';
   static const _kQuality = 'hg.quality';
   static const _kSpeed = 'hg.speed';
+  static const _kAuthToken = 'hg.auth.token';
+  static const _kAuthProfile = 'hg.auth.profile';
 
   static Future<LocalStore> open() async {
     final prefs = await SharedPreferences.getInstance();
@@ -91,4 +95,31 @@ class LocalStore {
   String get quality => _prefs.getString(_kQuality) ?? '高清';
   Future<void> setQuality(String value) async =>
       _prefs.setString(_kQuality, value);
+
+  // ---- 登录态 ----
+
+  String? get authToken {
+    final token = _prefs.getString(_kAuthToken);
+    return token == null || token.isEmpty ? null : token;
+  }
+
+  UserProfile? get authProfile {
+    final raw = _prefs.getString(_kAuthProfile);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return UserProfile.fromStorage(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> saveAuth(String token, UserProfile profile) async {
+    await _prefs.setString(_kAuthToken, token);
+    await _prefs.setString(_kAuthProfile, profile.encode());
+  }
+
+  Future<void> clearAuth() async {
+    await _prefs.remove(_kAuthToken);
+    await _prefs.remove(_kAuthProfile);
+  }
 }
