@@ -8,6 +8,7 @@ import '../data/models/watch_progress.dart';
 import '../data/source/demo_source.dart';
 import '../data/source/drama_source.dart';
 import '../data/source/hongguo_source.dart';
+import '../data/source/hongguotv_bridge_source.dart';
 
 /// 全局状态：站源、收藏、观看历史、播放偏好、登录态。
 ///
@@ -55,7 +56,7 @@ class AppState extends ChangeNotifier {
           name: '红果',
           description: hongguoGateway.isEmpty
               ? '需配置网关地址（见 README）'
-              : '官方通道已配置',
+              : '第三方网关已配置',
           ready: hongguoGateway.isNotEmpty,
         ),
       ];
@@ -66,14 +67,26 @@ class AppState extends ChangeNotifier {
     defaultValue: '',
   );
 
-  /// 网关的 X-API-Key（部署脚本默认会生成一个）。
+  /// 网关令牌：通用网关使用 X-API-Key，hongguoTV 协议使用 Bearer。
   static const hongguoToken = String.fromEnvironment(
     'HONGGUO_TOKEN',
     defaultValue: '',
   );
 
+  /// 网关协议：gateway（本仓库原有契约）或 hongguotv（公开 API v1）。
+  static const hongguoGatewayProtocol = String.fromEnvironment(
+    'HONGGUO_GATEWAY_PROTOCOL',
+    defaultValue: 'gateway',
+  );
+
   DramaSource _buildSource(String id) {
     if (id == 'hongguo' && hongguoGateway.isNotEmpty) {
+      if (hongguoGatewayProtocol == 'hongguotv') {
+        return HongguoTvBridgeSource(
+          baseUrl: hongguoGateway,
+          token: hongguoToken,
+        );
+      }
       return HongguoDramaSource(
         baseUrl: hongguoGateway,
         headers: {

@@ -125,7 +125,10 @@ class _PlayerPageState extends State<PlayerPage> {
     }
 
     try {
-      final controller = VideoPlayerController.networkUrl(Uri.parse(url));
+      final controller = VideoPlayerController.networkUrl(
+        Uri.parse(url),
+        httpHeaders: _episode.httpHeaders,
+      );
       await controller.initialize();
       await controller.setLooping(false);
       if (position > Duration.zero) {
