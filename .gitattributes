@@ -1,0 +1,17 @@
+# 统一换行符，避免 Windows 下提交后 macOS/Linux 上的脚本无法执行
+* text=auto
+
+*.sh    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.dart  text eol=lf
+*.plist text eol=lf
+*.rb     text eol=lf
+Podfile  text eol=lf
+
+# 二进制资源不做转换
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.ttf   binary
+*.otf   binary

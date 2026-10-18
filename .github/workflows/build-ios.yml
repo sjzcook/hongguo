@@ -1,0 +1,102 @@
+name: Build unsigned IPA
+
+# iOS 包只能在 macOS 上构建（需要 Xcode 的 clang 与 iOS SDK），
+# 所以用 GitHub 的 macOS runner 出未签名 IPA，产物在 Actions 的 Artifacts 里下载。
+on:
+  workflow_dispatch:
+    inputs:
+      flutter_version:
+        description: 'Flutter 版本'
+        required: false
+        default: '3.47.7'
+      gateway:
+        description: '红果网关地址（留空则使用内置演示站源）'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-ipa:
+    name: iOS unsigned IPA
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ inputs.flutter_version || '3.47.7' }}
+          channel: stable
+          cache: true
+
+      - name: 版本信息
+        run: flutter --version
+
+      - name: 拉取依赖
+        run: flutter pub get
+
+      - name: 构建 Runner.app（不签名）
+        run: |
+          set -euo pipefail
+          GATEWAY="${{ inputs.gateway }}"
+          if [ -n "$GATEWAY" ]; then
+            flutter build ios --release --no-codesign \
+              --dart-define=HONGGUO_GATEWAY="$GATEWAY"
+          else
+            flutter build ios --release --no-codesign
+          fi
+
+      - name: 打包成 ipa
+        run: |
+          set -euo pipefail
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error::构建产物不存在：$APP_PATH"
+            exit 1
+          fi
+
+          VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f1)
+          IPA_NAME="hongguo-${VERSION}-unsigned.ipa"
+
+          rm -rf Payload "$IPA_NAME"
+          mkdir -p Payload
+          # ditto 比 cp -r 更可靠，能保留 .app 内的符号链接与扩展属性
+          ditto "$APP_PATH" "Payload/Runner.app"
+
+          # -y 保留符号链接（Framework 里必须有）
+          zip -qry "$IPA_NAME" Payload
+
+          echo "IPA_NAME=$IPA_NAME" >> "$GITHUB_ENV"
+          echo "--- 产物 ---"
+          ls -lh "$IPA_NAME"
+          echo "--- 架构 ---"
+          lipo -info Payload/Runner.app/Runner || true
+          echo "--- 签名状态（预期为空/未签名）---"
+          codesign -dv Payload/Runner.app 2>&1 || echo "未签名（符合预期）"
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: hongguo-ios-unsigned
+          path: ${{ env.IPA_NAME }}
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: 打 tag 时附到 Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.IPA_NAME }}
+          body: |
+            红果短剧 Flutter 客户端 · 未签名 iOS 包
+
+            **注意**：未签名 IPA 无法直接安装。需要用 AltStore、Sideloadly、
+            爱思助手等工具自签（免费 Apple ID 可用 7 天，开发者账号 1 年）。
