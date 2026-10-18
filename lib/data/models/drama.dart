@@ -54,13 +54,9 @@ class Drama {
   final int playCount;
   final double score;
   final String source;
-
-  /// 站源未提供图片时的兜底渐变。
   final List<Color>? coverColors;
 
   bool get isCompleted => status == DramaStatus.completed;
-
-  /// 已更新集数，部分站源只给总集数。
   int get availableEpisodes =>
       updatedEpisodes > 0 ? updatedEpisodes : totalEpisodes;
 
@@ -91,22 +87,24 @@ class Drama {
         coverColors: coverColors,
       );
 
-  factory Drama.fromJson(Map<String, dynamic> json, {String source = 'hongguo'}) {
-    final episodes = json['episode_count'] ?? json['totalEpisodes'] ?? 0;
+  factory Drama.fromJson(Map<String, dynamic> json,
+      {String source = 'hongguo'}) {
+    final episodes =
+        json['episode_count'] ?? json['episode_cnt'] ?? json['totalEpisodes'] ?? json['total'] ?? 0;
     return Drama(
-      id: '${json['id'] ?? json['drama_id'] ?? json['book_id'] ?? ''}',
-      title: '${json['title'] ?? json['name'] ?? '未命名'}',
+      id: '${json['id'] ?? json['drama_id'] ?? json['series_id'] ?? json['book_id'] ?? ''}',
+      title: '${json['title'] ?? json['series_title'] ?? json['name'] ?? '未命名'}',
       cover: '${json['cover'] ?? json['thumb_url'] ?? json['cover_url'] ?? ''}',
-      description: '${json['description'] ?? json['abstract'] ?? ''}',
-      category: '${json['category'] ?? json['category_name'] ?? '都市'}',
+      description: '${json['description'] ?? json['abstract'] ?? json['intro'] ?? json['desc'] ?? ''}',
+      category: '${json['category'] ?? json['category_name'] ?? (json['tags'] is List && (json['tags'] as List).isNotEmpty ? (json['tags'] as List).first : '都市')}',
       tags: (json['tags'] as List?)?.map((e) => '$e').toList() ?? const [],
       actors: (json['actors'] as List?)?.map((e) => '$e').toList() ?? const [],
       totalEpisodes: int.tryParse('$episodes') ?? 0,
-      updatedEpisodes: int.tryParse('${json['updated_episodes'] ?? 0}') ?? 0,
+      updatedEpisodes: int.tryParse('${json['updated_episodes'] ?? json['listed_cnt'] ?? 0}') ?? 0,
       status: '${json['status'] ?? ''}'.contains('完结')
           ? DramaStatus.completed
           : DramaStatus.ongoing,
-      playCount: int.tryParse('${json['play_count'] ?? 0}') ?? 0,
+      playCount: int.tryParse('${json['play_count'] ?? json['heat'] ?? 0}') ?? 0,
       score: double.tryParse('${json['score'] ?? 0}') ?? 0,
       source: source,
     );
@@ -123,24 +121,24 @@ class Episode {
     this.locked = false,
   });
 
-  /// 从 1 开始的集号。
   final int index;
   final String title;
   final String videoUrl;
   final Duration duration;
-
-  /// 站源标记的付费/需登录集。
   final bool locked;
 
   String get label => '第 $index 集';
 
   factory Episode.fromJson(Map<String, dynamic> json) => Episode(
-        index: int.tryParse('${json['index'] ?? json['episode'] ?? 1}') ?? 1,
-        title: '${json['title'] ?? json['name'] ?? ''}',
+        index: int.tryParse('${json['index'] ?? json['ep'] ?? json['vid_index'] ?? json['episode'] ?? 1}') ?? 1,
+        title: '${json['title'] ?? json['episode_title'] ?? json['name'] ?? ''}',
         videoUrl: '${json['video_url'] ?? json['url'] ?? json['play_url'] ?? ''}',
         duration: Duration(
-          seconds: int.tryParse('${json['duration'] ?? 0}') ?? 0,
+          seconds: int.tryParse('${json['duration'] ?? json['duration_seconds'] ?? 0}') ?? 0,
         ),
-        locked: json['locked'] == true || json['is_vip'] == true,
+        locked: json['locked'] == true ||
+            json['is_vip'] == true ||
+            json['playable'] == false ||
+            json['is_locked'] == true,
       );
 }

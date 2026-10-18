@@ -25,14 +25,7 @@ class AuthSession {
   final UserProfile profile;
 }
 
-/// 登录能力抽象。
-///
-/// 和 [DramaSource] 一样，把「怎么认证」与 UI 解耦：
-/// - [DemoAuthService] 不联网，用于跑通交互；
-/// - [GatewayAuthService] 对接自建网关的 `/auth/*`，
-///   由网关决定如何校验（自有账号体系、官方授权渠道等）。
-///
-/// 客户端本身不实现任何第三方私有登录协议。
+/// 认证能力抽象。客户端只连接已配置的真实网关认证，不提供本地伪造登录。
 abstract class AuthService {
   /// 认证方式标识：demo / gateway。
   String get mode;
@@ -60,87 +53,6 @@ bool isValidPhone(String phone) =>
     RegExp(r'^1[3-9]\d{9}$').hasMatch(phone.trim());
 
 bool isValidCode(String code) => RegExp(r'^\d{4,6}$').hasMatch(code.trim());
-
-/// 本地演示认证：任意合法手机号 + `123456` 即可登录。
-///
-/// 完全离线，不产生任何外部请求，用于验证登录态、门禁与退出的完整链路。
-class DemoAuthService implements AuthService {
-  DemoAuthService({this.delay = const Duration(milliseconds: 450)});
-
-  final Duration delay;
-
-  static const code = '123456';
-
-  @override
-  String get mode => 'demo';
-
-  @override
-  String get label => '演示模式';
-
-  @override
-  String get hint => '演示模式：不联网，任意手机号 + 验证码 123456';
-
-  @override
-  Future<String?> sendCode(String phone) async {
-    if (!isValidPhone(phone)) {
-      throw const AuthException('请输入正确的手机号', kind: AuthErrorKind.invalid);
-    }
-    await Future<void>.delayed(delay);
-    return code;
-  }
-
-  @override
-  Future<AuthSession> login({
-    required String phone,
-    required String code,
-  }) async {
-    await Future<void>.delayed(delay);
-    if (!isValidPhone(phone)) {
-      throw const AuthException('请输入正确的手机号', kind: AuthErrorKind.invalid);
-    }
-    if (code.trim() != DemoAuthService.code) {
-      throw const AuthException('验证码不正确，演示模式请输入 123456',
-          kind: AuthErrorKind.invalid);
-    }
-    final profile = UserProfile(
-      uid: 'demo-${_stableId(phone)}',
-      nickname: '果友${phone.substring(phone.length - 4)}',
-      phone: phone,
-      vipLevel: 1,
-      expiresAt: DateTime.now().add(const Duration(days: 30)),
-      mode: mode,
-    );
-    return AuthSession(token: 'demo.${_stableId(phone)}', profile: profile);
-  }
-
-  @override
-  Future<UserProfile> fetchProfile(String token) async {
-    if (!token.startsWith('demo.')) {
-      throw const AuthException('登录已失效，请重新登录',
-          kind: AuthErrorKind.invalid);
-    }
-    return UserProfile(
-      uid: token,
-      nickname: '果友',
-      vipLevel: 1,
-      mode: mode,
-    );
-  }
-
-  @override
-  Future<void> logout(String token) async {}
-
-  @override
-  void dispose() {}
-
-  String _stableId(String phone) {
-    var hash = 7;
-    for (final unit in phone.codeUnits) {
-      hash = (hash * 31 + unit) & 0x7fffffff;
-    }
-    return hash.toRadixString(16).padLeft(8, '0');
-  }
-}
 
 /// 对接自建网关的认证实现。
 ///

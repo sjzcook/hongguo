@@ -5,15 +5,13 @@ import '../models/drama.dart';
 /// 真果鉴把站源请求、解析放在 Go 核心层（FFI）里，本项目的思路一致：
 /// UI 只依赖这层接口，具体站源可替换、可并联，互不影响。
 ///
-/// 内置实现：
-/// * [DemoDramaSource]  —— 离线演示数据，保证 UI 与播放链路随开随用；
-/// * [HongguoDramaSource] —— 红果官方通道，请求经可注入的签名器发出。
+/// 当前客户端只注册真实红果源实现。
 abstract class DramaSource {
   String get id;
   String get name;
   String get description;
 
-  /// 是否已完成配置（演示源恒为 true）。
+  /// 是否已配置可用的真实源。
   bool get ready;
 
   Future<List<Drama>> fetchFeed({int page = 1, String? category});

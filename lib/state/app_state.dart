@@ -5,7 +5,6 @@ import '../data/local/local_store.dart';
 import '../data/models/drama.dart';
 import '../data/models/user_profile.dart';
 import '../data/models/watch_progress.dart';
-import '../data/source/demo_source.dart';
 import '../data/source/drama_source.dart';
 import '../data/source/hongguo_source.dart';
 
@@ -44,18 +43,12 @@ class AppState extends ChangeNotifier {
 
   /// 可切换的站源描述。接入真实站源时在这里注册。
   List<SourceOption> get sourceOptions => [
-        const SourceOption(
-          id: 'demo',
-          name: '演示站源',
-          description: '内置离线剧库，开箱即用',
-          ready: true,
-        ),
         SourceOption(
           id: 'hongguo',
-          name: '红果',
+          name: '红果真实源',
           description: hongguoGateway.isEmpty
-              ? '需配置网关地址（见 README）'
-              : '官方通道已配置',
+              ? '需要配置真实元数据网关'
+              : '已配置元数据网关与播放解析端点',
           ready: hongguoGateway.isNotEmpty,
         ),
       ];
@@ -73,27 +66,23 @@ class AppState extends ChangeNotifier {
   );
 
   DramaSource _buildSource(String id) {
-    if (id == 'hongguo' && hongguoGateway.isNotEmpty) {
-      return HongguoDramaSource(
-        baseUrl: hongguoGateway,
-        headers: {
-          if (hongguoToken.isNotEmpty) 'X-API-Key': hongguoToken,
-          if (_authToken != null) 'Authorization': 'Bearer $_authToken',
-        },
-      );
-    }
-    return DemoDramaSource();
+    // Always use the real source. If no metadata gateway is configured,
+    // HongguoDramaSource returns a clear configuration error instead of demo data.
+    return HongguoDramaSource(
+      baseUrl: hongguoGateway,
+      headers: {
+        if (hongguoToken.isNotEmpty) 'X-API-Key': hongguoToken,
+        if (_authToken != null) 'Authorization': 'Bearer $_authToken',
+      },
+    );
   }
 
   /// 有网关就走网关认证，否则用完全离线的演示认证。
   AuthService _buildAuthService() {
-    if (hongguoGateway.isNotEmpty) {
-      return GatewayAuthService(
-        baseUrl: hongguoGateway,
-        apiKey: hongguoToken,
-      );
-    }
-    return DemoAuthService();
+    return GatewayAuthService(
+      baseUrl: hongguoGateway,
+      apiKey: hongguoToken,
+    );
   }
 
   // ---------------------------------------------------------------- 登录态

@@ -26,16 +26,7 @@ class _SearchPageState extends State<SearchPage> {
   bool _loading = false;
   bool _searched = false;
 
-  static const _hotWords = [
-    '龙王归来',
-    '闪婚',
-    '重生',
-    '赘婿',
-    '萌宝',
-    '神医',
-    '穿越',
-    '悬疑',
-  ];
+  static const List<String> _hotWords = [];
 
   @override
   void dispose() {
