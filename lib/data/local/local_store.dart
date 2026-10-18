@@ -82,7 +82,7 @@ class LocalStore {
 
   // ---- 偏好 ----
 
-  String get sourceId => _prefs.getString(_kSource) ?? 'demo';
+  String get sourceId => _prefs.getString(_kSource) ?? 'hongguo';
   Future<void> setSourceId(String id) async => _prefs.setString(_kSource, id);
 
   bool get autoPlay => _prefs.getBool(_kAutoPlay) ?? true;
