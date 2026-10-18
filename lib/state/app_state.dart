@@ -66,16 +66,15 @@ class AppState extends ChangeNotifier {
   );
 
   DramaSource _buildSource(String id) {
-    if (id == 'hongguo' && hongguoGateway.isNotEmpty) {
-      return HongguoDramaSource(
-        baseUrl: hongguoGateway,
-        headers: {
-          if (hongguoToken.isNotEmpty) 'X-API-Key': hongguoToken,
-          if (_authToken != null) 'Authorization': 'Bearer $_authToken',
-        },
-      );
-    }
-    return DemoDramaSource();
+    // Always use the real source. If no metadata gateway is configured,
+    // HongguoDramaSource returns a clear configuration error instead of demo data.
+    return HongguoDramaSource(
+      baseUrl: hongguoGateway,
+      headers: {
+        if (hongguoToken.isNotEmpty) 'X-API-Key': hongguoToken,
+        if (_authToken != null) 'Authorization': 'Bearer $_authToken',
+      },
+    );
   }
 
   /// 有网关就走网关认证，否则用完全离线的演示认证。
