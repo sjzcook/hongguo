@@ -152,7 +152,15 @@ jobs:
           IPA_PATH=${OUT_DIR}/${IPA_NAME}
           test -s "${IPA_PATH}"
           /usr/bin/unzip -t "${IPA_PATH}"
-          /usr/bin/unzip -Z1 "${IPA_PATH}" | grep -q '^Payload/Runner.app/Info.plist
+          /usr/bin/unzip -Z1 "${IPA_PATH}" | grep -Fq "Payload/Runner.app/Info.plist"
+          if /usr/bin/unzip -Z1 "${IPA_PATH}" | grep -Fq "embedded.mobileprovision"; then
+            echo "Unexpected embedded provisioning profile in unsigned IPA" >&2
+            exit 1
+          fi
+          shasum -a 256 "${IPA_PATH}" > "${OUT_DIR}/SHA256SUMS.txt"
+          cat "${OUT_DIR}/SHA256SUMS.txt"
+          echo "IPA_PATH=${IPA_PATH}" >> "${GITHUB_ENV}"
+          echo "IPA_NAME=${IPA_NAME}" >> "${GITHUB_ENV}"
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
