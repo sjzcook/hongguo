@@ -55,7 +55,7 @@ class AppState extends ChangeNotifier {
           name: '红果',
           description: hongguoGateway.isEmpty
               ? '需配置网关地址（见 README）'
-              : '官方通道已配置',
+              : '元数据网关已配置，播放解析端点读取 sources.json 配置',
           ready: hongguoGateway.isNotEmpty,
         ),
       ];
