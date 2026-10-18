@@ -195,6 +195,21 @@ POST /auth/logout   Authorization: Bearer <token>      # -> {"code":0}
 > 测试未能在本机执行；在正常桌面环境 `flutter test` 可直接运行。
 > 本机也未安装 Android SDK，故未产出 APK；`flutter build apk --release` 在有 Android 环境时可直接出包。
 
+## 第三方接口接入与验证
+
+当前 `HongguoDramaSource` 通过 `HONGGUO_GATEWAY` 访问自建或经授权的第三方网关；它不是红果官方 API 客户端。第三方字段映射、测试及许可证调研见 [docs/THIRD_PARTY_SOURCE_RESEARCH.md](docs/THIRD_PARTY_SOURCE_RESEARCH.md)。
+
+运行适配器测试：
+
+```bash
+flutter test test/hongguo_source_test.dart
+flutter analyze
+```
+
+网关必须返回有权访问的剧集元数据和标准播放器可直接播放的媒体 URL。接口源码公开不代表在线接口仍可用，也不代表媒体已获得播放授权。客户端不实现签名仿造或 DRM/CENC 解密。
+
+---
+
 ## 打包 iOS 未签名 IPA
 
 iOS 产物必须在 macOS 上编译（需要 Xcode 的 clang 与 iOS SDK），Windows / Linux 无法交叉编译。
