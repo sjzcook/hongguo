@@ -1,0 +1,118 @@
+name: Build hongguo unsigned IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      gateway:
+        description: "Optional HONGGUO_GATEWAY URL"
+        required: false
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - "lib/**"
+      - "ios/**"
+      - "scripts/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+      - ".github/workflows/build-unsigned-ipa.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hongguo-unsigned-ipa-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      HONGGUO_GATEWAY: ${{ inputs.gateway || '' }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.7"
+          cache: true
+
+      - name: Show toolchain
+        run: |
+          flutter --version
+          xcodebuild -version
+          ruby --version
+
+      - name: Resolve dependencies
+        run: |
+          set -euo pipefail
+          flutter pub get
+
+          # Work around a Swift-source compatibility regression in the newest
+          # shared_preferences_foundation generated code while keeping the
+          # workaround local to CI (no tracked project files are modified).
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("pubspec.yaml")
+          text = p.read_text()
+          if "dependency_overrides:" not in text:
+              text += "\n# CI compatibility override for unsigned iOS builds\ndependency_overrides:\n  shared_preferences_foundation: 2.5.6\n"
+          elif not re.search(r"(?m)^  shared_preferences_foundation:", text):
+              text += "\n  shared_preferences_foundation: 2.5.6\n"
+          else:
+              text = re.sub(r"(?m)^  shared_preferences_foundation:.*$", "  shared_preferences_foundation: 2.5.6", text)
+          p.write_text(text)
+          PY
+          flutter pub get
+          flutter pub deps --style=compact | grep -E 'shared_preferences(_foundation)? ' || true
+
+      - name: Build Runner.app without code signing
+        run: |
+          set -euo pipefail
+          if [ -n "$HONGGUO_GATEWAY" ]; then
+            flutter build ios --release --no-codesign --dart-define=HONGGUO_GATEWAY="$HONGGUO_GATEWAY"
+          else
+            flutter build ios --release --no-codesign
+          fi
+          test -d build/ios/iphoneos/Runner.app
+          test -f build/ios/iphoneos/Runner.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' build/ios/iphoneos/Runner.app/Info.plist
+
+      - name: Package and validate unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(awk '/^version:/ {print $2; exit}' pubspec.yaml | cut -d+ -f1)"
+          IPA_NAME="hongguo-${VERSION}-unsigned.ipa"
+          STAGING="$RUNNER_TEMP/ipa-staging"
+          OUT_DIR="$RUNNER_TEMP/ipa-output"
+          rm -rf "$STAGING" "$OUT_DIR"
+          mkdir -p "$STAGING/Payload" "$OUT_DIR"
+          ditto build/ios/iphoneos/Runner.app "$STAGING/Payload/Runner.app"
+          (cd "$STAGING" && /usr/bin/zip -qry "$OUT_DIR/$IPA_NAME" Payload)
+          test -s "$OUT_DIR/$IPA_NAME"
+          /usr/bin/unzip -t "$OUT_DIR/$IPA_NAME"
+          /usr/bin/unzip -Z1 "$OUT_DIR/$IPA_NAME" | grep -q '^Payload/Runner.app/Info.plist$'
+          if /usr/bin/unzip -Z1 "$OUT_DIR/$IPA_NAME" | grep -q 'embedded.mobileprovision'; then
+            echo "Unexpected embedded provisioning profile in unsigned IPA" >&2
+            exit 1
+          fi
+          shasum -a 256 "$OUT_DIR/$IPA_NAME" | tee "$OUT_DIR/SHA256SUMS.txt"
+          echo "IPA_PATH=$OUT_DIR/$IPA_NAME" >> "$GITHUB_ENV"
+          echo "IPA_NAME=$IPA_NAME" >> "$GITHUB_ENV"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hongguo-unsigned-ipa
+          path: |
+            ${{ runner.temp }}/ipa-output/*.ipa
+            ${{ runner.temp }}/ipa-output/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
