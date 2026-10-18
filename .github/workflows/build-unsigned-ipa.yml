@@ -139,24 +139,39 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="$(awk '/^version:/ {print $2; exit}' pubspec.yaml | cut -d+ -f1)
-          IPA_NAME="hongguo-${VERSION}-unsigned.ipa"
-          STAGING="$RUNNER_TEMP/ipa-staging"
-          OUT_DIR="$RUNNER_TEMP/ipa-output"
-          rm -rf "$STAGING" "$OUT_DIR"
-          mkdir -p "$STAGING/Payload" "$OUT_DIR"
-          ditto build/ios/iphoneos/Runner.app "$STAGING/Payload/Runner.app"
-          (cd "$STAGING" && /usr/bin/zip -qry "$OUT_DIR/$IPA_NAME" Payload)
-          test -s "$OUT_DIR/$IPA_NAME"
-          /usr/bin/unzip -t "$OUT_DIR/$IPA_NAME"
-          /usr/bin/unzip -Z1 "$OUT_DIR/$IPA_NAME" | grep -q '^Payload/Runner.app/Info.plist$'
-          if /usr/bin/unzip -Z1 "$OUT_DIR/$IPA_NAME" | grep -q 'embedded.mobileprovision'; then
-            echo "Unexpected embedded provisioning profile in unsigned IPA" >&2
+          VERSION=$(awk '/^version:/ {print $2; exit}' pubspec.yaml | cut -d+ -f1)
+          IPA_NAME=hongguo-${VERSION}-unsigned.ipa
+          STAGING=${RUNNER_TEMP}/ipa-staging
+          OUT_DIR=${RUNNER_TEMP}/ipa-output
+
+          rm -rf "${STAGING}" "${OUT_DIR}"
+          mkdir -p "${STAGING}/Payload" "${OUT_DIR}"
+          ditto build/ios/iphoneos/Runner.app "${STAGING}/Payload/Runner.app"
+          (cd "${STAGING}" && /usr/bin/zip -qry "${OUT_DIR}/${IPA_NAME}" Payload)
+
+          IPA_PATH=${OUT_DIR}/${IPA_NAME}
+          test -s "${IPA_PATH}"
+          /usr/bin/unzip -t "${IPA_PATH}"
+          /usr/bin/unzip -Z1 "${IPA_PATH}" | grep -q '^Payload/Runner.app/Info.plist
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hongguo-unsigned-ipa
+          path: |
+            ${{ runner.temp }}/ipa-output/*.ipa
+            ${{ runner.temp }}/ipa-output/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+
+          if /usr/bin/unzip -Z1 "${IPA_PATH}" | grep -q 'embedded.mobileprovision'; then
+            printf '%s\n' 'Unexpected embedded provisioning profile in unsigned IPA' >&2
             exit 1
           fi
-          shasum -a 256 "$OUT_DIR/$IPA_NAME" | tee "$OUT_DIR/SHA256SUMS.txt"
-          echo "IPA_PATH=$OUT_DIR/$IPA_NAME" >> "$GITHUB_ENV"
-          echo "IPA_NAME=$IPA_NAME" >> "$GITHUB_ENV"
+
+          shasum -a 256 "${IPA_PATH}" > "${OUT_DIR}/SHA256SUMS.txt"
+          cat "${OUT_DIR}/SHA256SUMS.txt"
+          printf 'IPA_PATH=%s\nIPA_NAME=%s\n' "${IPA_PATH}" "${IPA_NAME}" >> "${GITHUB_ENV}"
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
