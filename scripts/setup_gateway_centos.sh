@@ -229,7 +229,7 @@ const CONFIG = {
   port: envNum('PORT', 8080),
   bind: envStr('BIND', '127.0.0.1'),
   apiKey: envStr('API_KEY', ''),
-  upstream: envStr('UPSTREAM', 'mock').toLowerCase(),
+  upstream: envStr('UPSTREAM', 'http').toLowerCase(),
   upstreamBase: envStr('UPSTREAM_BASE', '').replace(/\/+$/, ''),
   upstreamToken: envStr('UPSTREAM_TOKEN', ''),
   cacheTtl: envNum('CACHE_TTL', 60),
@@ -240,7 +240,7 @@ const CONFIG = {
   logLevel: envStr('LOG_LEVEL', 'info'),
   // 登录相关
   authSecret: envStr('AUTH_SECRET', ''),
-  authCode: envStr('AUTH_CODE', '123456'),
+  authCode: envStr('AUTH_CODE', ''),
   authTtlDays: envNum('AUTH_TTL_DAYS', 30),
   freeEpisodes: envNum('FREE_EPISODES', 10),
 };
@@ -258,7 +258,7 @@ function log(level, msg, extra) {
 function loadAdapter() {
   const file = path.join(__dirname, 'lib', 'adapters', CONFIG.upstream + '.js');
   if (!fs.existsSync(file)) {
-    throw new Error('未知的 UPSTREAM「' + CONFIG.upstream + '」，可选 mock / http');
+    throw new Error('未知的 UPSTREAM「' + CONFIG.upstream + '」，当前只支持 http');
   }
   const mod = require(file);
   if (typeof mod.create !== 'function') {
@@ -640,156 +640,6 @@ function main() {
 main();
 HONGUO_SERVER_JS
 
-  cat > "$root/lib/adapters/mock.js" <<'HONGUO_MOCK_JS'
-'use strict';
-
-/*
- * 内置演示适配器：确定性剧库 + 可播放样片。
- * 用来验证「客户端 ↔ 网关」链路是否通，不访问任何第三方接口。
- * MOCK_LOCKED_AFTER=N  第 N 集之后标记为付费（默认 0，全部免费）
- */
-
-const CATEGORIES = ['推荐', '都市', '甜宠', '逆袭', '古装', '悬疑', '萌宝', '年代', '玄幻'];
-
-const VIDEOS = [
-  'https://flutter.github.io/assets-for-api-docs/assets/videos/bee.mp4',
-  'https://flutter.github.io/assets-for-api-docs/assets/videos/butterfly.mp4',
-];
-
-// [标题, 分类, 标签, 主演, 总集数, 是否完结, 播放量, 评分]
-const SEEDS = [
-  ['闪婚后，霸总他天天想官宣', '甜宠', ['闪婚', '总裁', '甜宠'], ['沈知意', '陆时珩'], 82, 1, 128600000, 9.3],
-  ['离婚后，前妻跪求复合', '都市', ['追妻', '打脸', '虐恋'], ['林晚', '顾时衍'], 96, 1, 214300000, 9.5],
-  ['重生八零：我靠倒卖发家', '年代', ['重生', '年代', '爽文'], ['苏小满', '周卫东'], 74, 0, 88700000, 9.1],
-  ['穿成虐文女主后我摆烂了', '古装', ['穿越', '反套路', '宫斗'], ['姜黎', '萧景珩'], 68, 0, 156200000, 9.4],
-  ['总裁的贴身小神医', '都市', ['医术', '扮猪吃虎', '马甲'], ['叶辰', '苏清歌'], 110, 1, 305400000, 9.2],
-  ['萌宝来袭：妈咪你别跑', '萌宝', ['萌宝', '带球跑', '破镜重圆'], ['温言', '傅司寒', '团团'], 90, 1, 176800000, 9.0],
-  ['我在古代开外卖', '古装', ['穿越', '美食', '轻喜'], ['许知夏', '裴云舟'], 60, 0, 64200000, 8.8],
-  ['豪门弃女归来', '逆袭', ['复仇', '真假千金', '打脸'], ['沈昭', '陆廷深'], 88, 1, 194300000, 9.2],
-  ['深夜来电', '悬疑', ['悬疑', '推理', '反转'], ['方野', '许南'], 42, 1, 53100000, 9.6],
-  ['冷面教官的小娇妻', '甜宠', ['军婚', '先婚后爱'], ['苏念', '霍沉'], 76, 0, 112700000, 8.9],
-  ['一世枭雄', '玄幻', ['热血', '升级', '漫剧'], ['楚天', '阿蛮'], 120, 0, 273900000, 9.1],
-  ['错嫁良缘：将军太宠我', '古装', ['错嫁', '宠妻', '权谋'], ['柳如烟', '萧策'], 80, 1, 99100000, 9.0],
-  ['我的老板是前任', '都市', ['职场', '破镜重圆', '暗恋'], ['程曦', '江屿'], 64, 0, 74500000, 8.7],
-  ['八零小媳妇的逆袭人生', '年代', ['年代', '种田', '励志'], ['何小娥', '陈建军'], 92, 1, 133500000, 9.2],
-  ['天降萌宝：爹地是首富', '萌宝', ['萌宝', '认亲', '总裁'], ['唐糖', '厉行川'], 86, 1, 158900000, 8.8],
-  ['她从地狱来', '悬疑', ['复仇', '悬疑', '双面'], ['顾清欢', '沈砚'], 56, 0, 61200000, 9.3],
-  ['休妻后，王爷他疯了', '古装', ['休妻', '追妻', '虐恋'], ['沈云舒', '萧煜'], 78, 1, 104300000, 9.1],
-  ['重生之我在娱乐圈封神', '逆袭', ['重生', '娱乐圈', '爽文'], ['夏栀', '陆星河'], 100, 0, 187600000, 9.0],
-  ['合租室友是顶流', '甜宠', ['合租', '明星', '甜宠'], ['米朵', '季煜白'], 58, 0, 82500000, 8.9],
-  ['废柴医妃要翻身', '古装', ['医术', '穿越', '宫斗'], ['云浅', '墨景琛'], 84, 1, 121400000, 9.2],
-  ['我在末日当团长', '玄幻', ['末世', '热血', '漫剧'], ['陆行舟', '阿宁'], 70, 0, 58300000, 8.6],
-  ['前夫跪求我回头', '都市', ['追妻', '打脸', '虐恋'], ['宋清欢', '傅谨言'], 94, 1, 165700000, 9.0],
-  ['小村官的致富经', '年代', ['乡村', '励志', '群像'], ['李向阳', '王小满'], 66, 0, 41700000, 8.8],
-  ['偏执大佬的掌心娇', '甜宠', ['偏执', '救赎', '甜宠'], ['林小满', '厉寒川'], 72, 1, 142800000, 8.9],
-];
-
-function pad(n, width) {
-  let s = String(n);
-  while (s.length < width) s = '0' + s;
-  return s;
-}
-
-function buildDramas() {
-  return SEEDS.map((s, i) => {
-    const [title, category, tags, actors, total, completed, playCount, score] = s;
-    const id = 'hg-' + pad(i + 1, 3);
-    const updated = completed ? total : Math.max(1, Math.round(total * (0.45 + ((i * 7) % 40) / 100)));
-    return {
-      id,
-      title,
-      cover: 'https://picsum.photos/seed/hongguo' + (i + 1) + '/360/480',
-      description:
-        title + '：' + tags.join('·') + '题材短剧，共 ' + total + ' 集。' +
-        (completed ? '已完结，可一次看完。' : '正在连载，追更不迷路。'),
-      category,
-      category_name: category,
-      tags,
-      actors,
-      episode_count: total,
-      total_episodes: total,
-      updated_episodes: updated,
-      status: completed ? '已完结' : '连载中',
-      play_count: playCount,
-      score,
-      source: 'hongguo-gateway',
-    };
-  });
-}
-
-const DRAMAS = buildDramas();
-const BY_ID = new Map(DRAMAS.map((d) => [d.id, d]));
-
-function lockedAfter() {
-  const v = parseInt(process.env.MOCK_LOCKED_AFTER || '0', 10);
-  return Number.isFinite(v) && v > 0 ? v : 0;
-}
-
-function create() {
-  return {
-    name: 'mock',
-
-    async categories() {
-      return CATEGORIES.slice();
-    },
-
-    async feed({ category }) {
-      const c = (category || '').trim();
-      if (!c || c === '推荐' || c === '全部') return DRAMAS.slice();
-      return DRAMAS.filter((d) => d.category === c).slice();
-    },
-
-    async ranking({ type }) {
-      const list = DRAMAS.slice();
-      switch (type) {
-        case 'new':
-          return list.reverse();
-        case 'finished':
-          return list.filter((d) => d.status === '已完结');
-        case 'ai':
-          return list.filter((d) => d.category === '玄幻' || d.tags.includes('漫剧'));
-        case 'hot':
-        default:
-          return list.sort((a, b) => b.play_count - a.play_count);
-      }
-    },
-
-    async search({ q }) {
-      const k = q.toLowerCase();
-      return DRAMAS.filter((d) => {
-        const hay = [d.title, d.category, d.tags.join(' '), d.actors.join(' ')].join(' ').toLowerCase();
-        return hay.includes(k);
-      }).slice();
-    },
-
-    async detail(id) {
-      return BY_ID.get(id) || null;
-    },
-
-    async episodes(id) {
-      const d = BY_ID.get(id);
-      if (!d) return null;
-      const n = d.updated_episodes || d.episode_count;
-      const limit = lockedAfter();
-      const list = [];
-      for (let i = 1; i <= n; i += 1) {
-        list.push({
-          index: i,
-          episode: i,
-          title: d.title + ' 第' + i + '集',
-          video_url: VIDEOS[(i - 1) % VIDEOS.length],
-          duration: 78 + ((i * 13) % 55),
-          locked: limit > 0 && i > limit,
-          is_vip: limit > 0 && i > limit,
-        });
-      }
-      return list;
-    },
-  };
-}
-
-module.exports = { create };
-HONGUO_MOCK_JS
 
   cat > "$root/lib/adapters/http.js" <<'HONGUO_HTTP_JS'
 'use strict';
@@ -951,14 +801,14 @@ API_KEY=${key}
 AUTH_SECRET=${secret}
 
 # 演示用固定验证码。接真实短信服务时置空，并改造 /auth/sms 与 /auth/login
-AUTH_CODE=123456
+AUTH_CODE=
 AUTH_TTL_DAYS=30
 
 # 未登录时免费可看的集数，其余集标记为登录专享
 FREE_EPISODES=10
 
 # 上游：mock = 内置演示数据；http = 转发到 UPSTREAM_BASE
-UPSTREAM=mock
+UPSTREAM=http
 UPSTREAM_BASE=
 UPSTREAM_TOKEN=
 
