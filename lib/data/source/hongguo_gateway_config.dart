@@ -7,8 +7,10 @@ class HongguoGatewayConfig {
 
   static const enabled = true;
   static const websiteBaseUrl = 'https://hongguoduanju.com';
-  static const playbackEndpoint =
-      'https://djapi.999888456.xyz/api/hongguo/play';
+  static const playbackEndpoint = String.fromEnvironment(
+    'HONGGUO_PLAYBACK_ENDPOINT',
+    defaultValue: 'https://djapi.999888456.xyz/api/hongguo/play',
+  );
   static const referer = 'https://hongguoduanju.com/';
   static const mediaReferer = 'https://novel.snssdk.com/';
   static const maxPages = 20;
