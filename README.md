@@ -27,6 +27,16 @@ flutter pub get
 flutter run                 # 默认演示站源，无需任何配置
 ```
 
+如果使用 [hongguoTV API v1](https://github.com/N3urda/hongguoTV) 兼容网关，可通过以下参数选择对应协议（网关地址不带 `/api` 后缀）：
+
+```bash
+flutter run --dart-define=HONGGUO_GATEWAY=http://192.168.1.10:8787 \\
+            --dart-define=HONGGUO_GATEWAY_PROTOCOL=hongguotv \\
+            --dart-define=HONGGUO_TOKEN=你的网关口令
+```
+
+`HONGGUO_GATEWAY_PROTOCOL` 默认是 `gateway`，保持原有自建网关契约。`hongguotv` 模式使用 `/api/home`、`/api/search`、`/api/series/:id` 与 `/api/episodes/:id/stream`；此 API v1 不提供排行榜接口，因此不会伪造榜单数据。需要播放授权口令时，客户端会把 Bearer 头同时传给 API 和播放器。
+
 指定平台：
 
 ```bash
