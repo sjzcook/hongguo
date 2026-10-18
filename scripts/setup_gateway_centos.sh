@@ -488,8 +488,9 @@ async function handle(req, res) {
     if (!isPhone(body.phone)) return fail(req, res, 400, '手机号格式不正确');
     const phone = String(body.phone).trim();
     log('info', 'auth sms', { phone: phone.slice(0, 3) + '****' + phone.slice(-2) });
-    // debug_code 让演示环境免去查日志；接短信服务商时请把 AUTH_CODE 留空并下掉该字段。
-    return okBody(req, res, { sent: true, expire: 300, debug_code: CONFIG.authCode || undefined });
+    // No fake SMS is sent. Configure a real SMS provider before enabling login.
+    if (!CONFIG.authCode) return fail(req, res, 503, '尚未配置真实短信验证码服务');
+    return okBody(req, res, { sent: true, expire: 300, debug_code: undefined });
   }
 
   if (pathname === '/auth/login') {
@@ -800,14 +801,14 @@ API_KEY=${key}
 # 登录凭证的 HMAC 签名密钥，务必使用随机值（脚本已生成）
 AUTH_SECRET=${secret}
 
-# 演示用固定验证码。接真实短信服务时置空，并改造 /auth/sms 与 /auth/login
+# 真实短信服务未配置前留空；需实现真实短信发送与验证码校验
 AUTH_CODE=
 AUTH_TTL_DAYS=30
 
 # 未登录时免费可看的集数，其余集标记为登录专享
 FREE_EPISODES=10
 
-# 上游：mock = 内置演示数据；http = 转发到 UPSTREAM_BASE
+# 上游必须配置为你有权使用的真实 API
 UPSTREAM=http
 UPSTREAM_BASE=
 UPSTREAM_TOKEN=
@@ -823,7 +824,7 @@ ALLOW_ORIGIN=*
 # 上游请求超时（毫秒）
 REQUEST_TIMEOUT=10000
 
-# 演示适配器：第 N 集之后标记付费，0 = 全部免费
+# 分集付费标记策略由真实上游返回
 MOCK_LOCKED_AFTER=0
 
 LOG_LEVEL=info
@@ -1106,12 +1107,12 @@ print_summary() {
   else
     printf '   flutter run --dart-define=HONGGUO_GATEWAY=%s\n\n' "$url"
   fi
-  printf ' 登录验证码: 123456（演示固定码，可在配置里改 AUTH_CODE）\n'
+  printf ' 登录验证码: 未配置（请接入真实短信服务）\n'
   printf ' 自测：curl -H "X-API-Key: %s" "%s/feed?page=1"\n' "${key:-}" "$url"
   printf ' 登录：curl -s -X POST -H "Content-Type: application/json" \\\n'
-  printf '         -d '\''{"phone":"13800138000","code":"123456"}'\'' \\\n'
+  printf '         请先接入真实短信验证码服务再启用登录。\\n'
   printf '         "%s/auth/login"\n\n' "$url"
-  printf ' 说明：当前 UPSTREAM=mock，返回内置演示数据；接自有上游改 %s\n\n' "$CONF_FILE"
+  printf ' 说明：请配置 %s 中的 UPSTREAM_BASE 指向真实元数据 API。\n\n' "$CONF_FILE"
 }
 
 # ---------------------------------------------------------------- 卸载
