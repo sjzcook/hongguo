@@ -122,16 +122,23 @@ class Episode {
   const Episode({
     required this.index,
     required this.title,
+    this.id = '',
     this.videoUrl = '',
     this.duration = Duration.zero,
     this.locked = false,
+    this.httpHeaders = const {},
   });
 
+  /// 第三方桥接服务的分集 ID（可能不是数字）。
+  final String id;
   final int index;
   final String title;
   final String videoUrl;
   final Duration duration;
   final bool locked;
+
+  /// 播放流所需的网关请求头，例如授权网关的 Bearer 令牌。
+  final Map<String, String> httpHeaders;
 
   String get label => '第 $index 集';
 
@@ -142,7 +149,8 @@ class Episode {
         ? Duration(milliseconds: durationValue.round())
         : Duration(seconds: durationValue.round());
     return Episode(
-      index: int.tryParse('${json['index'] ?? json['episode'] ?? json['vid_index'] ?? json['episode_index'] ?? 1}') ?? 1,
+      id: '${json['id'] ?? json['episode_id'] ?? json['vid'] ?? ''}',
+      index: int.tryParse('${json['index'] ?? json['episode'] ?? json['number'] ?? json['vid_index'] ?? json['episode_index'] ?? 1}') ?? 1,
       title: '${json['title'] ?? json['name'] ?? json['episode_title'] ?? ''}',
       // 只接收可由标准播放器直接播放的 URL。加密参数/密钥字段不在客户端解密。
       videoUrl: '${json['video_url'] ?? json['url'] ?? json['play_url'] ?? json['playUrl'] ?? json['main_url'] ?? ''}',
