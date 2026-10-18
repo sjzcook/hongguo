@@ -54,40 +54,43 @@ lib/
 │  ├─ source/
 │  │  ├─ drama_source.dart      站源抽象（唯一约束 UI 的契约）
 │  │  ├─ demo_source.dart       内置离线剧库（22 部 / 可播放）
-│  │  └─ hongguo_source.dart    红果通道：可注入 RequestSigner + 网关协议
+│  │  ├─ hongguo_source.dart    红果元数据网关与播放地址解析
+│  │  └─ hongguo_gateway_config.dart  从 MiniReel sources.json 提取的配置
 │  └─ local/local_store.dart    收藏 / 历史 / 偏好持久化
 ├─ state/app_state.dart   全局状态（ChangeNotifier）
-├─ features/
-│  ├─ shell/              底部三 Tab 框架
-│  ├─ home/               发现页
-│  ├─ ranking/            榜单页
-│  ├─ search/             搜索页
-│  ├─ detail/             详情 + 选集
-│  ├─ player/             播放器
-│  ├─ library/            我的（收藏 / 历史）
-│  └─ settings/           设置
-└─ widgets/               封面、剧卡、榜单行
+└─ features/              页面与播放器
 ```
 
 关键设计：
 
 1. **UI 不认识「红果」**。所有页面只依赖 `DramaSource`，换站源不改编排代码。
-2. **签名是可注入的**。`HongguoDramaSource` 接受 `RequestSigner`，把 X-Gorgon / X-Argus 这类设备指纹交给外部实现。
+2. **网关地址可配置**。元数据网关通过 `HONGGUO_GATEWAY` 注入，播放地址解析使用 `sources.json` 中的 `playbackEndpoint`，可单独覆盖。
 3. **失败不崩**。封面、分页、播放、详情各自有兜底与重试态；封面加载失败自动降级为标题渐变图。
 
-## 接入真实站源
+## MiniReel 配置的网关接入
 
-红果官方接口对每个请求都校验签名与设备指纹，纯 Dart 侧无法自行生成，这也是真果鉴要挂一个 Go 核心的原因。两条可行路径：
+配置来源：[`MiniReel-0.3.2-android-arm64-v8a/assets/flutter_assets/assets/config/sources.json`](MiniReel-0.3.2-android-arm64-v8a/assets/flutter_assets/assets/config/sources.json)。
 
-### 方案 A：自建解析网关（推荐，与真果鉴同构）
+`lib/data/source/hongguo_gateway_config.dart` 已提取其中红果源配置，包括：
 
+- 网页站点：`https://hongguoduanju.com`
+- 播放解析接口：`https://djapi.999888456.xyz/api/hongguo/play`
+- 网页 Referer、媒体 Referer、超时、重试次数、分页大小
+- `appBaseUrl`、User-Agent 与应用/设备参数（作为参考配置保留）
+
+播放器源在网关返回的分集没有直接视频 URL、但存在集号时，会请求播放解析接口，并传入 `series_id` 与 `ep` 查询参数。响应解析兼容 `data.url`、`result.url`、`url`、`video_url` 和 `play_url`。播放地址可能带时效，不应长期缓存。
+
+### 运行配置
+
+```bash
+flutter run \
+  --dart-define=HONGGUO_GATEWAY=https://你的元数据网关地址 \
+  --dart-define=HONGGUO_TOKEN=你的网关APIKey
 ```
-Flutter (本项目)  ──HTTP──▶  你的网关（Go/Node/Python）  ──签名请求──▶  红果接口
-                                  │
-                                  └─ 负责签名、设备指纹池、解密、地址下发
-```
 
-网关只需实现下面这些接口，返回 `{"data": ...}`：
+如需覆盖播放解析端点，可在构建参数中设置 `HONGGUO_PLAYBACK_ENDPOINT`（如果后续版本启用该覆盖项）；默认值来自上述配置文件。
+
+**注意：** `HONGGUO_GATEWAY` 是客户端自定义的元数据网关，必须实现以下契约并返回 JSON：
 
 ```
 GET /feed?page=1&category=都市
@@ -95,19 +98,12 @@ GET /rank?type=hot|new|finished|ai&page=1
 GET /search?q=关键词&page=1
 GET /drama/{id}
 GET /drama/{id}/episodes
-GET /categories          # 可选，缺省时客户端用内置分类
-GET /healthz             # 可选，部署脚本用它做自检
+GET /categories          # 可选
 ```
 
-然后启动时注入地址：
+`sources.json` 还包含一个应用接口域名及设备参数；这并不代表该接口是公开、免签或已授权的 API。本项目不会伪造官方私有签名、绕过付费门禁或解密受保护媒体。真实网关可用性与播放权限仍需在获得授权的前提下单独验证。
 
-```bash
-flutter run --dart-define=HONGGUO_GATEWAY=http://192.168.1.10:8080
-```
-
-设置页会自动把「红果」站源点亮，一键切换。
-
-#### 在 CentOS 上部署网关
+## 自建元数据网关
 
 `scripts/setup_gateway_centos.sh` 是一个自包含的部署脚本，**不需要 `npm install`**——网关只用 Node 标准库，脚本从镜像拉 Node tarball，不碰 yum 源：
 
@@ -117,143 +113,22 @@ ssh root@你的服务器
 bash setup_gateway_centos.sh --domain api.example.com --email you@example.com
 ```
 
-脚本依次完成：检测系统（CentOS 7/8/Stream 9、Rocky、Alma）→ CentOS 7/8 自动切 vault 源 → 装 Node → 生成网关代码到 `/opt/hongguo-gateway` → 写配置 `/etc/hongguo-gateway/config.env` → 注册 systemd 服务 → nginx 反代 80 → SELinux `httpd_can_network_connect` → firewalld 放行 → 有域名则申请证书 → 自检 `/healthz`。
-
-常用参数：
-
-| 参数 | 作用 |
-|---|---|
-| `--port 9000` | 网关监听端口（默认 8080，仅监听 127.0.0.1） |
-| `--no-nginx` | 不起 nginx，改为 `0.0.0.0:端口` 直连 |
-| `--no-auth` | 关闭 `X-API-Key` 校验（默认随机生成一个） |
-| `--force-config` | 覆盖已有配置（默认保留，避免冲掉 API Key） |
-| `--dry-run --prefix /tmp/gw` | 只生成文件、不改系统，本机也能试跑 |
-| `--uninstall` | 卸载服务与配置 |
-
-装完会打印地址、API Key 和对应的 `flutter run` 命令，直接用即可：
-
-```bash
-flutter run --dart-define=HONGGUO_GATEWAY=https://api.example.com \
-            --dart-define=HONGGUO_TOKEN=<脚本打印的 key>
-```
-
-网关默认 `UPSTREAM=mock`，返回内置的 24 部演示剧（含可播放样片），可以先端到端跑通链路；接自有上游时把 `/etc/hongguo-gateway/config.env` 改成 `UPSTREAM=http` + `UPSTREAM_BASE=...`，`systemctl restart hongguo-gateway` 生效。适配器源码在 `/opt/hongguo-gateway/lib/adapters/`，两个文件的接口一致，可照 `http.js` 再写一个。
-
-### 方案 B：WebView 通道
-
-用系统 WebView 打开官方 H5，拦截页面自身发出的 XHR/fetch 响应（签名由官方页面完成），
-把 JSON 回灌给 `HongguoDramaSource`。适合不想自建服务、只要手机端的场景。
-Android 端加 `flutter_inappwebview` 后，在 `shouldInterceptRequest` 里把响应体转发即可。
+脚本默认使用 mock 数据，便于先验证 UI 与播放链路；它不是红果官方 API 的实现。接自有上游时按脚本中的适配器契约配置。
 
 ## 登录与会话
 
-登录入口有三处：`我的` 页账号卡、设置页「账号」、以及点到付费集时的门禁弹窗。
+客户端只实现我们自己的 `/auth/*` 契约。红果官方登录可能需要签名与设备指纹；请将网关接到你有权使用的账号体系或官方授权渠道。
 
-### 两种认证模式（自动选择）
-
-| 模式 | 触发条件 | 行为 |
-| --- | --- | --- |
-| 演示模式 | 未配置 `HONGGUO_GATEWAY` | 完全离线，任意合法手机号 + 验证码 **123456** 登录 |
-| 自建网关 | 配置了 `HONGGUO_GATEWAY` | 走网关 `/auth/*`，凭证由网关签发 |
-
-### 免费集与解锁
-
-未登录时可以看前 N 集，其余集带锁角标；点锁集会先弹登录，登录成功后**自动续上原目标集**，不用再点一次。
-
-- 演示源：前 8 集免费（`DemoDramaSource.freeEpisodes`）
-- 网关：`FREE_EPISODES` 控制，默认 10；网关会在 `/episodes` 里返回 `locked` 字段
-- 播放器里上滑切到锁定集会停在门禁页，不会白屏或加载失败
-
-### 网关需要实现的认证接口
+## 测试
 
 ```bash
-POST /auth/sms      {"phone":"13800138000"}            # -> {"code":0,"data":{"sent":true,"debug_code":"123456"}}
-POST /auth/login    {"phone":"...","code":"..."}       # -> {"code":0,"data":{"token":"...","user":{...}}}
-GET  /auth/profile  Authorization: Bearer <token>      # -> {"code":0,"data":{"uid","nickname","phone","vip_level"}}
-POST /auth/logout   Authorization: Bearer <token>      # -> {"code":0}
+flutter pub get
+flutter analyze
+flutter test
 ```
 
-`debug_code` 仅供演示；接真实短信服务时把 `AUTH_CODE` 置空，并下掉该字段。
-部署脚本已经内置这套实现：HMAC-SHA256 无状态 token、默认 30 天有效期、签名密钥随机生成写入 `config.env`。
-
-### 会话怎么存
-
-- 只存 `token` + 昵称/头像/手机号后四位，**不存密码**（本来也没有密码这一环）。
-- 走 `shared_preferences`，退出登录立即清除，同时重建站源实例，后续请求不再带 `Authorization`。
-- token 失效（网关返回 401）时，`refreshProfile()` 会自动登出并回到未登录态。
-- 上线到真机建议换成 `flutter_secure_storage` 走 Keychain / Keystore；当前实现是为了零新增依赖。
-
-> 客户端只实现我们自己的 `/auth/*` 契约。红果官方的登录需要签名与设备指纹，属于逆向范畴，本项目**不提供**该实现；把网关接到你有权使用的账号体系或官方授权渠道即可。
-
-## 已验证
-
-- `flutter analyze` —— **0 issues**
-- `flutter build web --release` —— 构建通过
-- `test/widget_test.dart` —— 覆盖站源分页 / 排序 / 搜索 / 选集一致性 / 剧卡渲染
-
-> 说明：本机沙箱内 `flutter_tester` 无法建立本地 socket（报 `Invalid WebSocket upgrade request`），
-> 测试未能在本机执行；在正常桌面环境 `flutter test` 可直接运行。
-> 本机也未安装 Android SDK，故未产出 APK；`flutter build apk --release` 在有 Android 环境时可直接出包。
+`test/hongguo_gateway_config_test.dart` 覆盖配置值和播放解析请求参数。该测试使用 MockClient，不代表真实第三方服务已在线可用或真实视频已成功播放。
 
 ## 打包 iOS 未签名 IPA
 
-iOS 产物必须在 macOS 上编译（需要 Xcode 的 clang 与 iOS SDK），Windows / Linux 无法交叉编译。
-本项目提供两条出包路径，都不需要 Apple 开发者账号。
-
-### 路径一：GitHub Actions（推荐，无需 Mac）
-
-工作流：`.github/workflows/build-ios.yml`，跑在 `macos-14` 上。
-
-```bash
-# 打 tag 自动出包，并附到 Release
-git tag v1.0.0 && git push origin v1.0.0
-
-# 或到 Actions 页手动触发（Run workflow），可填网关地址
-```
-
-产物：`hongguo-<版本>-unsigned.ipa`，在 Actions 运行页的 **Artifacts** 里下载（保留 7 天）。
-
-核心命令就三行：
-
-```bash
-flutter build ios --release --no-codesign
-mkdir -p Payload && ditto build/ios/iphoneos/Runner.app Payload/Runner.app
-zip -qry app-unsigned.ipa Payload
-```
-
-### 路径二：本机 Mac 一键脚本
-
-```bash
-./scripts/build_ipa.sh
-# 带网关：
-HONGGUO_GATEWAY=http://192.168.1.10:8080 ./scripts/build_ipa.sh
-```
-
-产物在 `build/ipa/hongguo-<版本>-unsigned.ipa`。
-
-### 装到 iPhone 上
-
-未签名 IPA **不能直接安装**，iOS 会校验签名。需要自签：
-
-| 工具 | 说明 |
-| --- | --- |
-| Sideloadly / AltStore | 用免费 Apple ID 签名，有效期 7 天，到期重签 |
-| 爱思助手 | 图形化自签，需要登录 Apple ID |
-| 付费开发者账号 | 有效期 1 年，可长期使用 |
-
-自签后首次启动需在「设置 → 通用 → VPN与设备管理」里信任证书。
-
-> iOS 端已配置：显示名「红果短剧」、仅竖屏、Bundle ID `com.zhenguo.hongguo`、最低 iOS 15.0。
-
-## 平台说明
-
-| 平台 | 状态 |
-| --- | --- |
-| Android / iOS | 完整支持（`video_player` 原生解码） |
-| Web | 完整支持（浏览器解码，CORS 需站源配合） |
-| Windows / Linux | 界面可用，播放器依赖 `video_player` 无桌面实现，会提示「该平台不支持内置播放器」。接桌面播放可换 `media_kit` |
-
-## 免责声明
-
-本项目仅用于学习 Flutter 客户端架构与播放器实现。内置演示剧库为虚构内容，演示视频来自 Flutter 官方示例资源。
-接入真实站源时请遵守目标平台的用户协议与当地法律法规，不得用于商业用途、批量抓取或绕过付费内容。
+iOS 产物必须在 macOS 上编译（需要 Xcode 的 clang 与 iOS SDK），Windows / Linux 无法交叉编译。可通过仓库中的 GitHub Actions 工作流构建未签名 IPA。
