@@ -1,0 +1,43 @@
+name: Verify third-party drama source
+
+on:
+  push:
+    branches:
+      - feat/third-party-drama-source
+    paths:
+      - "lib/**"
+      - "test/**"
+      - "docs/THIRD_PARTY_SOURCE_RESEARCH.md"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+      - ".github/workflows/verify-third-party-source.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/**"
+      - "test/**"
+      - "docs/THIRD_PARTY_SOURCE_RESEARCH.md"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+      - ".github/workflows/verify-third-party-source.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Analyze
+        run: flutter analyze
+      - name: Run tests
+        run: flutter test
