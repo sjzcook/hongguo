@@ -170,23 +170,3 @@ jobs:
             ${{ runner.temp }}/ipa-output/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
-
-
-          if /usr/bin/unzip -Z1 "${IPA_PATH}" | grep -q 'embedded.mobileprovision'; then
-            printf '%s\n' 'Unexpected embedded provisioning profile in unsigned IPA' >&2
-            exit 1
-          fi
-
-          shasum -a 256 "${IPA_PATH}" > "${OUT_DIR}/SHA256SUMS.txt"
-          cat "${OUT_DIR}/SHA256SUMS.txt"
-          printf 'IPA_PATH=%s\nIPA_NAME=%s\n' "${IPA_PATH}" "${IPA_NAME}" >> "${GITHUB_ENV}"
-
-      - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: hongguo-unsigned-ipa
-          path: |
-            ${{ runner.temp }}/ipa-output/*.ipa
-            ${{ runner.temp }}/ipa-output/SHA256SUMS.txt
-          if-no-files-found: error
-          retention-days: 14
